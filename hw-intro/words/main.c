@@ -85,13 +85,51 @@ int num_words(FILE* infile) {
  * 1 in the event of any errors (e.g. wclist or infile is NULL)
  * and 0 otherwise.
  */
-int count_words(WordCount** wclist, FILE* infile) { return 0; }
+int count_words(WordCount** wclist, FILE* infile) {
+  if (wclist == NULL || infile == NULL)
+    return 1;
+
+  char word[MAX_WORD_LEN];
+  char* w = word;
+  int is_valid_word = 1;
+
+  int c;
+  while (((c = fgetc(infile)) != EOF)) {
+    if (isalpha(c)) {
+      *w++ = tolower(c);
+    } else if (isspace(c)) {
+      *w = '\0';
+      if (strlen(word) > 1 && is_valid_word && add_word(wclist, word))
+        return 1;
+
+      w = word;
+      is_valid_word = 1;
+    } else {
+      w = word;
+      is_valid_word = 0;
+    }
+  }
+
+  *w = '\0';
+  if (strlen(word) > 1 && is_valid_word && add_word(wclist, word)) {
+    return 1;
+  }
+
+  return 0;
+}
 
 /*
  * Comparator to sort list by frequency.
  * Useful function: strcmp().
  */
-static bool wordcount_less(const WordCount* wc1, const WordCount* wc2) { return 0; }
+static bool wordcount_less(const WordCount* wc1, const WordCount* wc2) {
+  if (wc2 == NULL)
+    return false;
+  else if (wc1 == NULL)
+    return true;
+
+  return wc1->count < wc2->count;
+}
 
 // In trying times, displays a helpful message.
 static int display_help(void) {
@@ -108,9 +146,6 @@ static int display_help(void) {
  * Handle command line flags and arguments.
  */
 int main(int argc, char* argv[]) {
-
-  printf("argc: %d", argc);
-
   // Count Mode (default): outputs the total amount of words counted
   bool count_mode = true;
   int total_words = 0;
@@ -154,14 +189,30 @@ int main(int argc, char* argv[]) {
   if ((argc - optind) < 1) {
     // No input file specified, instead, read from STDIN instead.
     infile = stdin;
+    total_words += num_words(infile);
   } else {
     // At least one file specified. Useful functions: fopen(), fclose().
     // The first file can be found at argv[optind]. The last file can be
     // found at argv[argc-1].
     for (int i = optind; i < argc; i++) {
       infile = fopen(argv[i], "r");
-      total_words += num_words(infile);
+      if (infile == NULL) {
+        fprintf(stderr, "File does not exist.\n");
+        return 1;
+      }
+
+      int has_error = 0;
+
+      if (count_mode)
+        total_words += num_words(infile);
+      else
+        has_error = count_words(&word_counts, infile);
+
       fclose(infile);
+      if (has_error) {
+        fprintf(stderr, "An error has occurred in count_words");
+        return 1;
+      }
     }
   }
 
