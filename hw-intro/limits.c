@@ -1,10 +1,23 @@
 #include <stdio.h>
+#include <errno.h>
+#include <string.h>
 #include <sys/resource.h>
 
+void print_rlimit(const char* name, int resource) {
+  struct rlimit lim;
+  if (getrlimit(resource, &lim) == 0) {
+    printf("%s: %lu\n", name, (unsigned long)lim.rlim_cur);
+  } else {
+    fprintf(stderr, "Failed to getrlimit for %s: %s\n", name, strerror(errno));
+  }
+}
+
 int main() {
-    struct rlimit lim;
-    printf("stack size: %ld\n", 0L);
-    printf("process limit: %ld\n", 0L);
-    printf("max file descriptors: %ld\n", 0L);
-    return 0;
+  print_rlimit("stack size", RLIMIT_STACK);
+
+  print_rlimit("process limit", RLIMIT_NPROC);
+
+  print_rlimit("max file descriptors", RLIMIT_NOFILE);
+
+  return 0;
 }
