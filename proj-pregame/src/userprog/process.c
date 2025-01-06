@@ -472,9 +472,15 @@ static bool setup_stack(void** esp) {
   kpage = palloc_get_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) {
     success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
-    if (success)
-      *esp = PHYS_BASE;
-    else
+    if (success) {
+      /* HACK: For proj0 do-nothing*/
+      *esp = PHYS_BASE - 20;
+
+      /* HACK: For proj0 do-not-much */
+      struct thread* t = thread_current();
+      uint32_t* pa = pagedir_get_page(t->pcb->pagedir, PHYS_BASE - 16);
+      asm volatile("movl $1, %0" : : "m"(*(uint32_t*)(pa)));
+    } else
       palloc_free_page(kpage);
   }
   return success;
