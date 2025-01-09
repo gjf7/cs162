@@ -25,12 +25,32 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+#include <stdbool.h>
 #include <ctype.h>
 #include <stdlib.h>
 #include <pthread.h>
 
 #include "word_count.h"
 #include "word_helpers.h"
+
+struct thread_params {
+  FILE* infile;
+  word_count_list_t* word_counts;
+};
+
+void* thread_count_word(void* params) {
+  struct thread_params* p = (struct thread_params*)params;
+  if (p->infile == NULL) {
+    fprintf(stderr, "File does not exist.\n");
+    pthread_exit(NULL);
+  }
+
+  count_words(p->word_counts, p->infile);
+
+  fclose(p->infile);
+  pthread_exit(NULL);
+}
 
 /*
  * main - handle command line, spawning one thread per file.
@@ -44,7 +64,30 @@ int main(int argc, char* argv[]) {
     /* Process stdin in a single thread. */
     count_words(&word_counts, stdin);
   } else {
-    /* TODO */
+    pthread_t threads[argc];
+    for (int i = 1; i < argc; i++) {
+      FILE* infile = fopen(argv[i], "r");
+
+      struct thread_params* params = (struct thread_params*)malloc(sizeof(struct thread_params));
+      if (params == NULL) {
+        fprintf(stderr, "Failed to allocate memory for thread parameters.\n");
+        fclose(infile);
+        return 1;
+      }
+      params->infile = infile;
+      params->word_counts = &word_counts;
+
+      int rc = pthread_create(&threads[i], NULL, thread_count_word, (void*)params);
+      if (rc) {
+        fprintf(stderr, "ERROR; return code from pthread_create() is %d\n", rc);
+        fclose(infile);
+        return 1;
+      }
+    }
+
+    for (int i = 1; i < argc; i++) {
+      pthread_join(threads[i], NULL);
+    }
   }
 
   /* Output final result of all threads' work. */
