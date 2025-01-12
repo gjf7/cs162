@@ -18,6 +18,8 @@
 #include "libhttp.h"
 #include "wq.h"
 
+#define BUFFER_SIZE 1024
+
 /*
  * Global configuration variables.
  * You need to use these in your implementation of handle_files_request and
@@ -39,12 +41,46 @@ void serve_file(int fd, char* path) {
 
   /* TODO: PART 2 */
   /* PART 2 BEGIN */
+  int ffd = open(path, O_RDONLY);
+  if (ffd == -1) {
+    goto failed;
+  }
+
+  struct stat file_stat;
+  if (fstat(ffd, &file_stat) == -1) {
+    close(ffd);
+    goto failed;
+  }
+
+  char content_length[256];
+  snprintf(content_length, 256, "%ld", file_stat.st_size);
 
   http_start_response(fd, 200);
   http_send_header(fd, "Content-Type", http_get_mime_type(path));
-  http_send_header(fd, "Content-Length", "0"); // TODO: change this line too
+  http_send_header(fd, "Content-Length", content_length);
   http_end_headers(fd);
 
+  char buffer[BUFFER_SIZE];
+  ssize_t bytes_read;
+  while ((bytes_read = read(ffd, &buffer, BUFFER_SIZE)) > 0) {
+    if (write(fd, &buffer, bytes_read) == -1) {
+      close(ffd);
+      goto failed;
+    }
+  }
+
+  if (bytes_read == -1) {
+    close(ffd);
+    goto failed;
+  }
+  close(ffd);
+  return;
+
+failed:
+  http_start_response(fd, 500);
+  http_send_header(fd, "Content-Type", "text/html");
+  http_end_headers(fd);
+  return;
   /* PART 2 END */
 }
 
@@ -55,15 +91,16 @@ void serve_directory(int fd, char* path) {
 
   /* TODO: PART 3 */
   /* PART 3 BEGIN */
-
-  // TODO: Open the directory (Hint: opendir() may be useful here)
-
-  /**
-   * TODO: For each entry in the directory (Hint: look at the usage of readdir() ),
-   * send a string containing a properly formatted HTML. (Hint: the http_format_href()
-   * function in libhttp.c may be useful here)
-   */
-
+  char buffer[BUFFER_SIZE];
+  struct dirent* dp = NULL;
+  DIR* dirp = opendir(path);
+  while ((dp = readdir(dirp)) != NULL) {
+    if (dp->d_type == DT_REG) {
+      http_format_href(buffer, path, dp->d_name);
+      write(fd, buffer, strlen(buffer));
+    }
+  }
+  (void)closedir(dirp);
   /* PART 3 END */
 }
 
@@ -117,7 +154,27 @@ void handle_files_request(int fd) {
    */
 
   /* PART 2 & 3 BEGIN */
+  struct stat sb;
+  if (stat(path, &sb) == -1) {
+    http_start_response(fd, 404);
+    http_send_header(fd, "Content-Type", "text/html");
+    http_end_headers(fd);
+    close(fd);
+    return;
+  }
 
+  if (S_ISREG(sb.st_mode)) {
+    serve_file(fd, path);
+  } else if (S_ISDIR(sb.st_mode)) {
+    char buffer[256];
+    http_format_index(buffer, path);
+
+    if (access(buffer, F_OK) == 0) {
+      serve_file(fd, buffer);
+    } else {
+      serve_directory(fd, path);
+    }
+  }
   /* PART 2 & 3 END */
 
   close(fd);
@@ -263,6 +320,15 @@ void serve_forever(int* socket_number, void (*request_handler)(int)) {
    */
 
   /* PART 1 BEGIN */
+  if (bind(*socket_number, (struct sockaddr*)&server_address, sizeof(server_address)) == -1) {
+    perror("Failed to bind socket");
+    exit(errno);
+  }
+
+  if (listen(*socket_number, 1024) == -1) {
+    perror("Failed to listen");
+    exit(errno);
+  }
 
   /* PART 1 END */
   printf("Listening on port %d...\n", server_port);
