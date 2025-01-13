@@ -181,6 +181,50 @@ void handle_files_request(int fd) {
   return;
 }
 
+struct proxy_connection_info {
+  int source_fd;
+  int target_fd;
+};
+
+void* proxy_transport(void* param) {
+  if (param == NULL) {
+    perror("proxy thread param");
+    pthread_exit(NULL);
+  }
+
+  struct proxy_connection_info* info = (struct proxy_connection_info*)param;
+  int source_fd = info->source_fd;
+  int target_fd = info->target_fd;
+
+  char buffer[BUFFER_SIZE];
+  ssize_t bytes_read;
+  while (1) {
+    bytes_read = read(source_fd, buffer, BUFFER_SIZE);
+    if (bytes_read < 0) {
+      perror("read error");
+      break;
+    }
+
+    if (bytes_read == 0) {
+      break;
+    }
+
+    ssize_t bytes_written = 0;
+    while (bytes_written < bytes_read) {
+      ssize_t result = write(target_fd, buffer + bytes_written, bytes_read - bytes_written);
+      if (result == -1) {
+        perror("write error");
+        break;
+      }
+      bytes_written += result;
+    }
+  }
+
+  shutdown(source_fd, SHUT_RDWR);
+  shutdown(target_fd, SHUT_RDWR);
+  pthread_exit(NULL);
+}
+
 /*
  * Opens a connection to the proxy target (hostname=server_proxy_hostname and
  * port=server_proxy_port) and relays traffic to/from the stream fd and the
@@ -244,7 +288,54 @@ void handle_proxy_request(int fd) {
 
   /* TODO: PART 4 */
   /* PART 4 BEGIN */
+  pthread_t threads[2];
+  struct proxy_connection_info* info1 =
+      (struct proxy_connection_info*)malloc(sizeof(struct proxy_connection_info));
+  if (info1 == NULL) {
+    perror("malloc");
+    close(target_fd);
+    close(fd);
+    return;
+  }
+  info1->source_fd = fd;
+  info1->target_fd = target_fd;
+  if (pthread_create(&threads[0], NULL, proxy_transport, (void*)info1) == -1) {
+    perror("pthread_create");
+    free(info1);
+    close(target_fd);
+    close(fd);
+    return;
+  }
 
+  struct proxy_connection_info* info2 =
+      (struct proxy_connection_info*)malloc(sizeof(struct proxy_connection_info));
+  if (info2 == NULL) {
+    perror("malloc");
+    free(info1);
+    close(target_fd);
+    close(fd);
+    return;
+  }
+
+  info2->source_fd = target_fd;
+  info2->target_fd = fd;
+  if (pthread_create(&threads[1], NULL, proxy_transport, (void*)info2) == -1) {
+    perror("pthread_create");
+    pthread_join(threads[0], NULL);
+    free(info1);
+    free(info2);
+    close(target_fd);
+    close(fd);
+    return;
+  }
+  pthread_join(threads[0], NULL);
+  pthread_join(threads[1], NULL);
+
+  free(info1);
+  free(info2);
+  close(fd);
+  close(target_fd);
+  return;
   /* PART 4 END */
 }
 
